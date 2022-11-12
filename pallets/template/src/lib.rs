@@ -98,6 +98,21 @@ pub mod pallet {
 			Ok(())
 		}
 
+		// Remove number by account ID
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
+		pub fn remove_number(origin: OriginFor<T>) -> DispatchResult{
+			 
+			// check signed
+			let who = ensure_signed(origin)?;
+
+			// update storage
+			<Number<T>>::remove(who.clone());
+
+			// emit event
+			Self::deposit_event(Event::SomethingStored(0, who));
+			Ok(())
+		}
+
 		/// An example dispatchable that may throw a custom error.
 		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1).ref_time())]
 		pub fn cause_error(origin: OriginFor<T>) -> DispatchResult {
