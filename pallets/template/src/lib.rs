@@ -38,6 +38,9 @@ pub mod pallet {
 	// https://docs.substrate.io/main-docs/build/runtime-storage/#declaring-storage-items
 	pub type Something<T> = StorageValue<_, u32>;
 
+	#[pallet::storage]
+	pub type Number<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
+
 	// Pallets use events to inform users when important changes are made.
 	// https://docs.substrate.io/main-docs/build/events-errors/
 	#[pallet::event]
@@ -77,6 +80,21 @@ pub mod pallet {
 			// Emit an event.
 			Self::deposit_event(Event::SomethingStored(something, who));
 			// Return a successful DispatchResultWithPostInfo
+			Ok(())
+		}
+
+		// Put number
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
+		pub fn put_number(origin: OriginFor<T>, number: u32) -> DispatchResult{
+			 
+			// check signed
+			let who = ensure_signed(origin)?;
+
+			// update storage
+			<Number<T>>::insert(who.clone(), number);
+
+			// emit event
+			Self::deposit_event(Event::SomethingStored(number, who));
 			Ok(())
 		}
 
