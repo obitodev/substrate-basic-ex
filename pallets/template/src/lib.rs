@@ -85,8 +85,7 @@ pub mod pallet {
 
 		// Put number
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
-		pub fn put_number(origin: OriginFor<T>, number: u32) -> DispatchResult{
-			 
+		pub fn put_number(origin: OriginFor<T>, number: u32) -> DispatchResult {
 			// check signed
 			let who = ensure_signed(origin)?;
 
@@ -100,8 +99,7 @@ pub mod pallet {
 
 		// Remove number by account ID
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
-		pub fn remove_number(origin: OriginFor<T>) -> DispatchResult{
-			 
+		pub fn remove_number(origin: OriginFor<T>) -> DispatchResult {
 			// check signed
 			let who = ensure_signed(origin)?;
 
