@@ -20,7 +20,6 @@ pub mod pallet {
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
 	use sp_std::vec::Vec;
-	use std::fmt;
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
@@ -28,15 +27,14 @@ pub mod pallet {
 	pub struct Pallet<T>(_);
 
 	// Struct for holding Kitty information.
-	#[derive(Clone, Encode, Decode, PartialEq, TypeInfo, Debug)]
+	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo)]
 	#[scale_info(skip_type_params(T))]
 	pub struct Kitty<T: Config> {
-		pub dna: Vec<u8>,
+		pub dna: [u8; 8],
 		pub owner: T::AccountId,
 		pub price: u64,
 		pub gender: Gender,
 	}
-
 	// Enum and implementation to handle Gender type in Kitty struct.
 	#[derive(Clone, Encode, Decode, PartialEq, Copy, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 	pub enum Gender {
@@ -64,19 +62,19 @@ pub mod pallet {
 
 	// Storage Kitty ID.
 	#[pallet::storage]
-	#[pallet::getter(fn kitty_id)]
-	pub type KittyId<T> = StorageValue<_, u32, ValueQuery>;
+	#[pallet::getter(fn kitty_count)]
+	pub type CountKitty<T> = StorageValue<_, u32, ValueQuery>;
 
 	// Storage Kitties map.
 	#[pallet::storage]
 	#[pallet::getter(fn kitty_list)]
-	pub type Kitties<T: Config> = StorageMap<_, Blake2_128Concat, Vec<u8>, Kitty<T>, OptionQuery>;
+	pub type Kitties<T: Config> = StorageMap<_, Blake2_128Concat, [u8; 8], Kitty<T>>;
 
 	// Storage Kitties owned
 	#[pallet::storage]
 	#[pallet::getter(fn kitty_owned)]
 	pub type KittiesOwned<T: Config> =
-		StorageMap<_, Blake2_128Concat, T::AccountId, Vec<Vec<u8>>, OptionQuery>;
+		StorageMap<_, Blake2_128Concat, T::AccountId, Vec<[u8; 8]>, ValueQuery>;
 
 	// Pallets use events to inform users when important changes are made.
 	// https://docs.substrate.io/main-docs/build/events-errors/
@@ -86,8 +84,8 @@ pub mod pallet {
 		/// Event documentation should end with an array that provides descriptive names for event
 		/// parameters. [something, who]
 		SomethingStored(u32, T::AccountId),
-		KittyCreated(T::AccountId, Vec<u8>),
-		KittyTransferred(T::AccountId, T::AccountId, Vec<u8>),
+		KittyCreated(T::AccountId, [u8; 8]),
+		KittyTransferred(T::AccountId, T::AccountId, [u8; 8]),
 	}
 
 	// Errors inform users that something went wrong.
@@ -99,6 +97,7 @@ pub mod pallet {
 		StorageOverflow,
 		KittyDuplicate,
 		KittyOverflow,
+		NoneKitty,
 	}
 
 	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
@@ -108,74 +107,31 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// An example dispatchable that takes a singles value as a parameter, writes the value to
 		/// storage and emits an event. This function must be dispatched by a signed extrinsic.
-		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
-		pub fn do_something(origin: OriginFor<T>, something: u32) -> DispatchResult {
-			// Check that the extrinsic was signed and get the signer.
-			// This function will return an error if the extrinsic is not signed.
-			// https://docs.substrate.io/main-docs/build/origins/
-			let who = ensure_signed(origin)?;
-
-			// Update storage.
-			<Something<T>>::put(something);
-
-			// Emit an event.
-			Self::deposit_event(Event::SomethingStored(something, who));
-			// Return a successful DispatchResultWithPostInfo
-			Ok(())
-		}
-
-		// Put number
-		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
-		pub fn put_number(origin: OriginFor<T>, number: u32) -> DispatchResult {
-			// check signed
-			let who = ensure_signed(origin)?;
-
-			// update storage
-			<Number<T>>::insert(who.clone(), number);
-
-			// emit event
-			Self::deposit_event(Event::SomethingStored(number, who));
-			Ok(())
-		}
-
-		// Remove number by account ID
-		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
-		pub fn remove_number(origin: OriginFor<T>) -> DispatchResult {
-			// check signed
-			let who = ensure_signed(origin)?;
-
-			// update storage
-			<Number<T>>::remove(who.clone());
-
-			// emit event
-			Self::deposit_event(Event::SomethingStored(0, who));
-			Ok(())
-		}
 
 		// create_kitty
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
-		pub fn create_kitty(origin: OriginFor<T>, dna: Vec<u8>) -> DispatchResult {
+		pub fn create_kitty(origin: OriginFor<T>, dna: [u8; 8]) -> DispatchResult {
 			// Check that the extrinsic was signed and get the signer.
 			// This function will return an error if the extrinsic is not signed.
 			// https://docs.substrate.io/main-docs/build/origins/
 			let owner = ensure_signed(origin)?;
 
-			//check gender
-			let gender = Gender::Female;
+			// check gender
+			let gender = Self::generate_gender(dna.clone())?;
 
-			let kitty: Kitty<T> =
-				Kitty { dna: dna.clone(), owner: owner.clone(), price: 0, gender };
+			// create new kitty instance
+			let kitty = Kitty::<T> { dna: dna.clone(), owner: owner.clone(), price: 0, gender };
 
-			// // check kitty exist in storage or not ?
+			// check kitty exist in storage or not ?
 			// ensure!(<Kitties<T>>::contains_key(kitty.dna.clone()), <Error<T>>::KittyDuplicate);
 
-			// // get index for new Kitty
-			// let current_id = <KittyId<T>>::get();
-			// let next_id = current_id.checked_add(1).ok_or(<Error<T>>::KittyOverflow)?;
+			// check kitty overflow
+			let current_id = <CountKitty<T>>::get();
+			let next_id = current_id.checked_add(1).ok_or(<Error<T>>::KittyOverflow)?;
 
 			// Update storage.
-			<KittyId<T>>::put(1);
-			<Kitties<T>>::insert(kitty.dna.clone(), kitty.clone());
+			<CountKitty<T>>::put(next_id);
+			<Kitties<T>>::insert(dna.clone(), kitty);
 			<KittiesOwned<T>>::append(owner.clone(), dna.clone());
 
 			// Emit an event.
@@ -184,28 +140,42 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// An example dispatchable that may throw a custom error.
-		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1).ref_time())]
-		pub fn cause_error(origin: OriginFor<T>) -> DispatchResult {
-			let _who = ensure_signed(origin)?;
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
+		pub fn transfer_kitty(
+			origin: OriginFor<T>,
+			to: T::AccountId,
+			dna: [u8; 8],
+		) -> DispatchResult {
+			// check signed
+			let from = ensure_signed(origin)?;
+			let mut kitty = <Kitties<T>>::get(dna.clone()).ok_or(<Error<T>>::NoneKitty)?;
 
-			// Read a value from storage.
-			match <Something<T>>::get() {
-				// Return an error if the value has not been set.
-				None => return Err(Error::<T>::NoneValue.into()),
-				Some(old) => {
-					// Increment the value read from storage; will error in the event of overflow.
-					let new = old.checked_add(1).ok_or(Error::<T>::StorageOverflow)?;
-					// Update the value in storage with the incremented result.
-					<Something<T>>::put(new);
-					Ok(())
-				},
+			let mut from_owned = KittiesOwned::<T>::get(&from);
+
+			// Remove kitty from list of owned kitties.
+			if let Some(ind) = from_owned.iter().position(|ids| *ids == dna) {
+				from_owned.swap_remove(ind);
+			} else {
+				return Err(<Error<T>>::NoneKitty.into());
 			}
+
+			// update new owner for kitty
+			let mut to_owned = KittiesOwned::<T>::get(&to);
+			to_owned.push(dna.clone());
+			kitty.owner = to.clone();
+
+			// Write updates to storage
+			<Kitties<T>>::insert(&dna, kitty);
+			<KittiesOwned<T>>::insert(&to, to_owned);
+			<KittiesOwned<T>>::insert(&from, from_owned);
+
+			Self::deposit_event(Event::KittyTransferred(from.clone(), to.clone(), dna.clone()));
+			Ok(())
 		}
 	}
 }
 impl<T> Pallet<T> {
-	fn generate_gender(dna: Vec<u8>) -> Result<Gender, Error<T>> {
+	fn generate_gender(dna: [u8; 8]) -> Result<Gender, Error<T>> {
 		let mut res = Gender::Female;
 		if dna.len() % 2 == 0 {
 			res = Gender::Male;
