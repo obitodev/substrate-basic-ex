@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use codec::Encode;
+use frame_support::traits::Randomness;
 /// Edit this file to define custom logic or remove it if it is not needed.
 /// Learn more about FRAME and the core library of Substrate FRAME pallets:
 /// <https://docs.substrate.io/reference/frame-pallets/>
@@ -33,7 +35,7 @@ pub mod pallet {
 	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo)]
 	#[scale_info(skip_type_params(T))]
 	pub struct Kitty<T: Config> {
-		pub dna: [u8; 8],
+		pub dna: T::Hash,
 		pub owner: T::AccountId,
 		pub price: u64,
 		pub gender: Gender,
@@ -52,6 +54,7 @@ pub mod pallet {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
 		type Time: Time;
+		type KittyRandomDna: Randomness<Self::Hash, Self::BlockNumber>;
 
 		#[pallet::constant]
 		type KittyOwnedLimit: Get<u32>;
@@ -76,7 +79,7 @@ pub mod pallet {
 	// Storage Kitties map.
 	#[pallet::storage]
 	#[pallet::getter(fn kitty_list)]
-	pub type Kitties<T: Config> = StorageMap<_, Blake2_128Concat, [u8; 8], Kitty<T>>;
+	pub type Kitties<T: Config> = StorageMap<_, Blake2_128Concat, T::Hash, Kitty<T>>;
 
 	// Storage Kitties owned
 	#[pallet::storage]
@@ -85,7 +88,7 @@ pub mod pallet {
 		_,
 		Blake2_128Concat,
 		T::AccountId,
-		BoundedVec<[u8; 8], T::KittyOwnedLimit>,
+		BoundedVec<T::Hash, T::KittyOwnedLimit>,
 		ValueQuery,
 	>;
 
@@ -97,8 +100,8 @@ pub mod pallet {
 		/// Event documentation should end with an array that provides descriptive names for event
 		/// parameters. [something, who]
 		SomethingStored(u32, T::AccountId),
-		KittyCreated(T::AccountId, [u8; 8]),
-		KittyTransferred(T::AccountId, T::AccountId, [u8; 8]),
+		KittyCreated(T::AccountId, T::Hash),
+		KittyTransferred(T::AccountId, T::AccountId, T::Hash),
 	}
 
 	// Errors inform users that something went wrong.
@@ -124,11 +127,14 @@ pub mod pallet {
 
 		// create_kitty
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1).ref_time())]
-		pub fn create_kitty(origin: OriginFor<T>, dna: [u8; 8]) -> DispatchResult {
+		pub fn create_kitty(origin: OriginFor<T>) -> DispatchResult {
 			// Check that the extrinsic was signed and get the signer.
 			// This function will return an error if the extrinsic is not signed.
 			// https://docs.substrate.io/main-docs/build/origins/
 			let owner = ensure_signed(origin)?;
+
+			// generate dna for kitty
+			let mut dna = Self::generate_dna()?;
 
 			// check gender
 			let gender = Self::generate_gender(dna.clone())?;
@@ -171,7 +177,7 @@ pub mod pallet {
 		pub fn transfer_kitty(
 			origin: OriginFor<T>,
 			to: T::AccountId,
-			dna: [u8; 8],
+			dna: T::Hash,
 		) -> DispatchResult {
 			// check signed
 			let from = ensure_signed(origin)?;
@@ -201,10 +207,19 @@ pub mod pallet {
 		}
 	}
 }
-impl<T> Pallet<T> {
-	fn generate_gender(dna: [u8; 8]) -> Result<Gender, Error<T>> {
+
+impl<T: Config> Pallet<T> {
+	fn generate_dna() -> Result<T::Hash, Error<T>> {
+		let mut res = T::KittyRandomDna::random(&b"kittydna"[..]).0;
+		while Self::kitty_list(res) != None {
+			res = T::KittyRandomDna::random(&b"kittydna"[..]).0;
+		}
+		Ok(res)
+	}
+
+	fn generate_gender(dna: T::Hash) -> Result<Gender, Error<T>> {
 		let mut res = Gender::Female;
-		if dna.len() % 2 == 0 {
+		if dna.encode()[0] % 2 == 0 {
 			res = Gender::Male;
 		}
 		Ok(res)
