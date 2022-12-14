@@ -4,7 +4,6 @@
 /// Learn more about FRAME and the core library of Substrate FRAME pallets:
 /// <https://docs.substrate.io/reference/frame-pallets/>
 pub use pallet::*;
-use sp_std::vec::Vec;
 
 #[cfg(test)]
 mod mock;
@@ -17,7 +16,11 @@ mod benchmarking;
 
 #[frame_support::pallet]
 pub mod pallet {
-	use frame_support::pallet_prelude::*;
+	use frame_support::{
+		pallet_prelude::*,
+		traits::{Randomness, Time},
+		BoundedVec,
+	};
 	use frame_system::pallet_prelude::*;
 	use sp_std::vec::Vec;
 
@@ -34,6 +37,7 @@ pub mod pallet {
 		pub owner: T::AccountId,
 		pub price: u64,
 		pub gender: Gender,
+		pub created_date: <<T as Config>::Time as Time>::Moment,
 	}
 	// Enum and implementation to handle Gender type in Kitty struct.
 	#[derive(Clone, Encode, Decode, PartialEq, Copy, RuntimeDebug, TypeInfo, MaxEncodedLen)]
@@ -47,6 +51,7 @@ pub mod pallet {
 	pub trait Config: frame_system::Config {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+		type Time: Time;
 	}
 
 	// The pallet's runtime storage items.
@@ -119,8 +124,17 @@ pub mod pallet {
 			// check gender
 			let gender = Self::generate_gender(dna.clone())?;
 
+			// get create date
+			let created_date = T::Time::now();
+
 			// create new kitty instance
-			let kitty = Kitty::<T> { dna: dna.clone(), owner: owner.clone(), price: 0, gender };
+			let kitty = Kitty::<T> {
+				dna: dna.clone(),
+				owner: owner.clone(),
+				price: 0,
+				gender,
+				created_date,
+			};
 
 			// check kitty exist in storage or not ?
 			// ensure!(<Kitties<T>>::contains_key(kitty.dna.clone()), <Error<T>>::KittyDuplicate);
