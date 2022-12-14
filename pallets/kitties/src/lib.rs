@@ -52,6 +52,9 @@ pub mod pallet {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
 		type Time: Time;
+
+		#[pallet::constant]
+		type KittyOwnedLimit: Get<u32>;
 	}
 
 	// The pallet's runtime storage items.
@@ -78,8 +81,13 @@ pub mod pallet {
 	// Storage Kitties owned
 	#[pallet::storage]
 	#[pallet::getter(fn kitty_owned)]
-	pub type KittiesOwned<T: Config> =
-		StorageMap<_, Blake2_128Concat, T::AccountId, Vec<[u8; 8]>, ValueQuery>;
+	pub type KittiesOwned<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		T::AccountId,
+		BoundedVec<[u8; 8], T::KittyOwnedLimit>,
+		ValueQuery,
+	>;
 
 	// Pallets use events to inform users when important changes are made.
 	// https://docs.substrate.io/main-docs/build/events-errors/
@@ -103,6 +111,7 @@ pub mod pallet {
 		KittyDuplicate,
 		KittyOverflow,
 		NoneKitty,
+		OverKittyOwnedLimit,
 	}
 
 	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
@@ -144,9 +153,13 @@ pub mod pallet {
 			let next_id = current_id.checked_add(1).ok_or(<Error<T>>::KittyOverflow)?;
 
 			// Update storage.
+			let mut kitties_owned = KittiesOwned::<T>::get(&owner);
+			kitties_owned
+				.try_push(dna.clone())
+				.map_err(|_| <Error<T>>::OverKittyOwnedLimit)?;
+			<KittiesOwned<T>>::insert(&owner, kitties_owned);
 			<CountKitty<T>>::put(next_id);
 			<Kitties<T>>::insert(dna.clone(), kitty);
-			<KittiesOwned<T>>::append(owner.clone(), dna.clone());
 
 			// Emit an event.
 			Self::deposit_event(Event::KittyCreated(owner.clone(), dna));
@@ -175,7 +188,7 @@ pub mod pallet {
 
 			// update new owner for kitty
 			let mut to_owned = KittiesOwned::<T>::get(&to);
-			to_owned.push(dna.clone());
+			to_owned.try_push(dna.clone()).map_err(|_| <Error<T>>::OverKittyOwnedLimit).ok();
 			kitty.owner = to.clone();
 
 			// Write updates to storage
