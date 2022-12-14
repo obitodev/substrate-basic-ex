@@ -18,13 +18,13 @@ mod benchmarking;
 
 #[frame_support::pallet]
 pub mod pallet {
+	use frame_support::dispatch::fmt;
 	use frame_support::{
 		pallet_prelude::*,
 		traits::{Randomness, Time},
 		BoundedVec,
 	};
 	use frame_system::pallet_prelude::*;
-	use sp_std::vec::Vec;
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
@@ -32,7 +32,7 @@ pub mod pallet {
 	pub struct Pallet<T>(_);
 
 	// Struct for holding Kitty information.
-	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, TypeInfo)]
+	#[derive(Clone, Encode, Decode, PartialEq, TypeInfo)]
 	#[scale_info(skip_type_params(T))]
 	pub struct Kitty<T: Config> {
 		pub dna: T::Hash,
@@ -41,6 +41,20 @@ pub mod pallet {
 		pub gender: Gender,
 		pub created_date: <<T as Config>::Time as Time>::Moment,
 	}
+
+	// Implement debug for kitty
+	impl<T: Config> fmt::Debug for Kitty<T> {
+		fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+			f.debug_struct("Kitty")
+				.field("dna", &self.dna)
+				.field("owner", &self.owner)
+				.field("price", &self.price)
+				.field("gender", &self.gender)
+				.field("created_date", &self.created_date)
+				.finish()
+		}
+	}
+
 	// Enum and implementation to handle Gender type in Kitty struct.
 	#[derive(Clone, Encode, Decode, PartialEq, Copy, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 	pub enum Gender {
@@ -71,7 +85,7 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type Number<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
 
-	// Storage Kitty ID.
+	// Storage total kitty.
 	#[pallet::storage]
 	#[pallet::getter(fn kitty_count)]
 	pub type CountKitty<T> = StorageValue<_, u32, ValueQuery>;
@@ -107,9 +121,7 @@ pub mod pallet {
 	// Errors inform users that something went wrong.
 	#[pallet::error]
 	pub enum Error<T> {
-		/// Error names should be descriptive.
 		NoneValue,
-		/// Errors should have helpful documentation associated with them.
 		StorageOverflow,
 		KittyDuplicate,
 		KittyOverflow,
@@ -133,16 +145,16 @@ pub mod pallet {
 			// https://docs.substrate.io/main-docs/build/origins/
 			let owner = ensure_signed(origin)?;
 
-			// generate dna for kitty
-			let mut dna = Self::generate_dna()?;
+			// Generate dna for kitty
+			let dna = Self::generate_dna()?;
 
-			// check gender
+			// Check gender
 			let gender = Self::generate_gender(dna.clone())?;
 
-			// get create date
+			// Get create date
 			let created_date = T::Time::now();
 
-			// create new kitty instance
+			// Create new kitty instance
 			let kitty = Kitty::<T> {
 				dna: dna.clone(),
 				owner: owner.clone(),
@@ -151,24 +163,27 @@ pub mod pallet {
 				created_date,
 			};
 
-			// check kitty exist in storage or not ?
-			// ensure!(<Kitties<T>>::contains_key(kitty.dna.clone()), <Error<T>>::KittyDuplicate);
+			// Log debug kitty instance
+			log::info!("==> {:?}", kitty);
 
-			// check kitty overflow
+			// Check kitty overflow
 			let current_id = <CountKitty<T>>::get();
 			let next_id = current_id.checked_add(1).ok_or(<Error<T>>::KittyOverflow)?;
 
-			// Update storage.
+			// Update kitties owned
 			let mut kitties_owned = KittiesOwned::<T>::get(&owner);
 			kitties_owned
 				.try_push(dna.clone())
 				.map_err(|_| <Error<T>>::OverKittyOwnedLimit)?;
+
+			// Update storage
 			<KittiesOwned<T>>::insert(&owner, kitties_owned);
 			<CountKitty<T>>::put(next_id);
 			<Kitties<T>>::insert(dna.clone(), kitty);
 
 			// Emit an event.
 			Self::deposit_event(Event::KittyCreated(owner.clone(), dna));
+
 			// Return a successful DispatchResultWithPostInfo
 			Ok(())
 		}
@@ -179,10 +194,10 @@ pub mod pallet {
 			to: T::AccountId,
 			dna: T::Hash,
 		) -> DispatchResult {
-			// check signed
+			// Check signed
 			let from = ensure_signed(origin)?;
-			let mut kitty = <Kitties<T>>::get(dna.clone()).ok_or(<Error<T>>::NoneKitty)?;
 
+			let mut kitty = <Kitties<T>>::get(dna.clone()).ok_or(<Error<T>>::NoneKitty)?;
 			let mut from_owned = KittiesOwned::<T>::get(&from);
 
 			// Remove kitty from list of owned kitties.
@@ -192,7 +207,7 @@ pub mod pallet {
 				return Err(<Error<T>>::NoneKitty.into());
 			}
 
-			// update new owner for kitty
+			// Update new owner for kitty
 			let mut to_owned = KittiesOwned::<T>::get(&to);
 			to_owned.try_push(dna.clone()).map_err(|_| <Error<T>>::OverKittyOwnedLimit).ok();
 			kitty.owner = to.clone();
@@ -202,13 +217,17 @@ pub mod pallet {
 			<KittiesOwned<T>>::insert(&to, to_owned);
 			<KittiesOwned<T>>::insert(&from, from_owned);
 
+			// Emit an event.
 			Self::deposit_event(Event::KittyTransferred(from.clone(), to.clone(), dna.clone()));
+
+			// Return a successful DispatchResultWithPostInfo
 			Ok(())
 		}
 	}
 }
 
 impl<T: Config> Pallet<T> {
+	// Generate random DNA for Kitty
 	fn generate_dna() -> Result<T::Hash, Error<T>> {
 		let mut res = T::KittyRandomDna::random(&b"kittydna"[..]).0;
 		while Self::kitty_list(res) != None {
@@ -217,6 +236,7 @@ impl<T: Config> Pallet<T> {
 		Ok(res)
 	}
 
+	// Generate random Gender for Kitty
 	fn generate_gender(dna: T::Hash) -> Result<Gender, Error<T>> {
 		let mut res = Gender::Female;
 		if dna.encode()[0] % 2 == 0 {
